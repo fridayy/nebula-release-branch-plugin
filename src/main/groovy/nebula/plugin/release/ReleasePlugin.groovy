@@ -15,7 +15,6 @@
  */
 package nebula.plugin.release
 
-import com.jfrog.bintray.gradle.BintrayUploadTask
 import nebula.core.ProjectType
 import org.ajoberstar.gradle.git.release.base.BaseReleasePlugin
 import org.ajoberstar.gradle.git.release.base.ReleasePluginExtension
@@ -24,16 +23,11 @@ import org.eclipse.jgit.errors.RepositoryNotFoundException
 import org.gradle.api.GradleException
 import org.gradle.api.Plugin
 import org.gradle.api.Project
-import org.gradle.api.Task
 import org.gradle.api.logging.Logger
 import org.gradle.api.logging.Logging
 import org.gradle.api.plugins.JavaPlugin
 import org.gradle.api.publish.ivy.IvyPublication
 import org.gradle.api.publish.ivy.plugins.IvyPublishPlugin
-import org.gradle.api.publish.ivy.tasks.GenerateIvyDescriptor
-import org.gradle.api.publish.maven.plugins.MavenPublishPlugin
-import org.gradle.api.publish.maven.tasks.GenerateMavenPom
-import org.jfrog.gradle.plugin.artifactory.task.BuildInfoBaseTask
 
 class ReleasePlugin implements Plugin<Project> {
     public static final String DISABLE_GIT_CHECKS = 'release.disableGitChecks'
@@ -58,7 +52,7 @@ class ReleasePlugin implements Plugin<Project> {
         try {
             git = Grgit.open(dir: gitRoot)
         }
-        catch(RepositoryNotFoundException e) {
+        catch (RepositoryNotFoundException e) {
             this.project.version = '0.1.0-dev.0.uncommitted'
             logger.warn("Git repository not found at $gitRoot -- nebula-release tasks will not be available. Use the git.root Gradle property to specify a different directory.")
             return
@@ -82,6 +76,7 @@ class ReleasePlugin implements Plugin<Project> {
 
             releaseExtension.with {
                 grgit = git
+                it.metaClass.tagStrategy = new TagAndBranchStrategy()
                 tagStrategy {
                     generateMessage = { version ->
                         StringBuilder builder = new StringBuilder()
@@ -93,6 +88,7 @@ class ReleasePlugin implements Plugin<Project> {
                             if (tagExists(grgit, previousVersion)) {
                                 excludes << previousVersion
                             }
+
                             grgit.log(
                                     includes: ['HEAD'],
                                     excludes: excludes
@@ -139,7 +135,7 @@ class ReleasePlugin implements Plugin<Project> {
                 project.tasks.prepare.deleteAllActions()
             }
         } else {
-            project.version = project.rootProject.version    
+            project.version = project.rootProject.version
         }
 
         if (type.isLeafProject) {
@@ -147,8 +143,6 @@ class ReleasePlugin implements Plugin<Project> {
                 project.rootProject.tasks.release.dependsOn project.tasks.build
             }
         }
-
-        configureBintrayTasksIfPresent()
     }
 
     private void determineStage(List<String> cliTasks, ReleaseCheck releaseCheck) {
@@ -203,44 +197,6 @@ class ReleasePlugin implements Plugin<Project> {
     void applyReleaseStage(String stage) {
         final String releaseStage = 'release.stage'
         project.allprojects.each { it.ext.set(releaseStage, stage) }
-    }
-
-    void configurePublishingIfPresent() {
-        project.plugins.withType(MavenPublishPlugin) {
-            project.tasks.withType(GenerateMavenPom) { task ->
-                project.rootProject.tasks.release.dependsOn(task)
-            }
-        }
-
-        project.plugins.withType(IvyPublishPlugin) {
-            project.tasks.withType(GenerateIvyDescriptor) { task ->
-                project.rootProject.tasks.release.dependsOn(task)
-            }
-        }
-    }
-
-    void configureBintrayTasksIfPresent() {
-        if (isClassPresent('com.jfrog.bintray.gradle.BintrayUploadTask')) {
-            project.tasks.withType(BintrayUploadTask) { Task task ->
-                project.plugins.withType(JavaPlugin) {
-                    task.dependsOn(project.tasks.build)
-                }
-                project.rootProject.tasks.release.dependsOn(task)
-            }
-        } else {
-            logger.info('Skipping configuration of bintray task since it is not present')
-        }
-
-        if (isClassPresent('org.jfrog.gradle.plugin.artifactory.task.BuildInfoBaseTask')) {
-            project.tasks.withType(BuildInfoBaseTask) { Task task ->
-                project.plugins.withType(JavaPlugin) {
-                    task.dependsOn(project.tasks.build)
-                }
-                project.rootProject.tasks.release.dependsOn(task)
-            }
-        } else {
-            logger.info('Skipping configuration of artifactoryPublish task since it is not present')
-        }
     }
 
     private boolean tagExists(Grgit grgit, String revStr) {
